@@ -36,6 +36,10 @@ fn parse_hh_mm(time: &str) -> ParseResult<NaiveTime> {
     NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| ParseErrorKind::InvalidTime)
 }
 
+fn parse_day(day: &str) -> ParseResult<u32> {
+    day.parse::<u32>().map_err(|_| ParseErrorKind::InvalidDay)
+}
+
 pub struct DateParser {
     server_time: DateTime<Utc>,
 }
@@ -54,65 +58,66 @@ impl DateParser {
     }
 
     fn parse_rel_time(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
-        match REL_TIME.captures(ts) {
-            Some(patts) => {
-                let (_, [relday_s, hhmm_s]) = patts.extract();
-                let hhmm = parse_hh_mm(hhmm_s)?;
-                let offset = match relday_s {
-                    "tänään" => Ok(Days::new(0)),
-                    "eilen" => Ok(Days::new(1)),
-                    _ => Err(ParseErrorKind::InvalidRelativeDay),
-                }?;
-                let date = self.server_time.date_naive().sub(offset);
-                let tz = self.server_time.offset();
-                let new_ts: chrono::LocalResult<DateTime<Utc>> = tz.with_ymd_and_hms(
-                    date.year(),
-                    date.month(),
-                    date.day(),
-                    hhmm.hour(),
-                    hhmm.minute(),
-                    0,
-                );
-                Ok(new_ts.unwrap())
-            }
-            None => Err(ParseErrorKind::UnknownFormat),
-        }
+        let patts = REL_TIME.captures(ts).ok_or(ParseErrorKind::UnknownFormat)?;
+
+        let (_, [relday_s, hhmm_s]) = patts.extract();
+        let hhmm = parse_hh_mm(hhmm_s)?;
+        let day_offset = match relday_s {
+            "tänään" => Ok(Days::new(0)),
+            "eilen" => Ok(Days::new(1)),
+            _ => Err(ParseErrorKind::InvalidRelativeDay),
+        }?;
+        let date = self.server_time.date_naive().sub(day_offset);
+        let new_ts = self.server_time.offset().with_ymd_and_hms(
+            date.year(),
+            date.month(),
+            date.day(),
+            hhmm.hour(),
+            hhmm.minute(),
+            0,
+        );
+        Ok(new_ts.unwrap())
     }
 
     fn parse_abs_time(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
-        // regex error
-        // int parse error
-        // chrono parse
-        match ABS_TIME.captures(ts) {
-            Some(patts) => {
-                let (_, [day_s, month_s, hhmm_s]) = patts.extract();
-                let day_num = day_s
-                    .parse::<u32>()
-                    .map_err(|_| ParseErrorKind::InvalidDay)?;
-                let month = parse_month_short(month_s)?;
-                let hhmm = parse_hh_mm(hhmm_s)?;
-                let new_ts = self
-                    .server_time
-                    .offset()
-                    .with_ymd_and_hms(
-                        self.server_time.year(),
-                        month.number_from_month(),
-                        day_num,
-                        hhmm.hour(),
-                        hhmm.minute(),
-                        0,
-                    )
-                    .unwrap();
-                if new_ts > self.server_time {
-                    let x = new_ts
-                        .with_year(new_ts.year() - 1)
-                        .ok_or(ParseErrorKind::UnknownFormat)?;
-                    Ok(x)
-                } else {
-                    Ok(new_ts)
-                }
-            }
-            None => Err(ParseErrorKind::UnknownFormat),
+        let patts = ABS_TIME.captures(ts).ok_or(ParseErrorKind::UnknownFormat)?;
+
+        let (_, [day_s, month_s, hhmm_s]) = patts.extract();
+        let day = parse_day(day_s)?;
+        let month = parse_month_short(month_s)?.number_from_month();
+        let hhmm = parse_hh_mm(hhmm_s)?;
+
+        let new_ts = self
+            .server_time
+            .offset()
+            .with_ymd_and_hms(
+                self.server_time.year(),
+                month,
+                day,
+                hhmm.hour(),
+                hhmm.minute(),
+                0,
+            )
+            .unwrap();
+
+        // timestamp can be in the future; check manually since we lack the actual year.
+        // this assumes no item can be listed for over a year.
+        let y_offset = if new_ts > self.server_time { 1 } else { 0 };
+
+        new_ts
+            .with_year(new_ts.year() - y_offset)
+            .ok_or(ParseErrorKind::UnknownFormat)
+    }
+
+    pub fn parse(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
+        // FIXME: this kinda throws away all that parsing context we carefully construct in each subparser.
+        // How do we distinguish between "not a relative time format" and "relative time format, but out of bounds value"
+        if let Ok(res) = self.parse_rel_time(ts) {
+            return Ok(res);
+        } else if let Ok(res) = self.parse_abs_time(ts) {
+            return Ok(res);
+        } else {
+            return Err(ParseErrorKind::UnknownFormat);
         }
     }
 }
