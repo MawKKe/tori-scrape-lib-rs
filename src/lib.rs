@@ -5,7 +5,7 @@ use regex::Regex;
 use std::ops::Sub;
 
 #[derive(Debug, PartialEq)]
-enum ParseErrorKind {
+pub enum ParseErrorKind {
     InvalidDay,
     InvalidMonth,
     InvalidTime,
