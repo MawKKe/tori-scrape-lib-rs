@@ -9,4 +9,5 @@ license-file = "LICENCE"
 
 [dependencies]
 chrono = "0.4.33"
+lazy_static = "1.4.0"
 regex = "1.10.3"
