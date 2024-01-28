@@ -4,19 +4,10 @@ use regex::Regex;
 
 use std::ops::Sub;
 
-#[derive(Debug, PartialEq)]
-pub enum ParseErrorKind {
-    InvalidDay,
-    InvalidMonth,
-    InvalidTime,
-    InvalidRelativeDay,
-    UnknownFormat,
-}
+pub type ParseResult<T> = Result<T, String>;
 
-pub type ParseResult<T> = Result<T, ParseErrorKind>;
-
-fn parse_month_short(short_name: &str) -> ParseResult<Month> {
-    match short_name {
+fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
+    match month_short_name {
         "tam" => Ok(Month::January),
         "hel" => Ok(Month::February),
         "maa" => Ok(Month::March),
@@ -29,15 +20,18 @@ fn parse_month_short(short_name: &str) -> ParseResult<Month> {
         "lok" => Ok(Month::October),
         "mar" => Ok(Month::November),
         "jou" => Ok(Month::December),
-        _ => Err(ParseErrorKind::InvalidMonth),
+        _ => Err(format!("unknown month: '{month_short_name}'")),
     }
 }
 fn parse_hh_mm(time: &str) -> ParseResult<NaiveTime> {
-    NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| ParseErrorKind::InvalidTime)
+    NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| format!("invalid time format: '{time}'"))
 }
 
 fn parse_day(day: &str) -> ParseResult<u32> {
-    day.parse::<u32>().map_err(|_| ParseErrorKind::InvalidDay)
+    match day.parse::<u32>() {
+        Ok(d) if d >= 1 && d <= 31 => Ok(d),
+        _ => Err(format!("invalid day number: '{day}'")),
+    }
 }
 
 pub struct DateParser {
@@ -57,15 +51,12 @@ impl DateParser {
         }
     }
 
-    fn parse_rel_time(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
-        let patts = REL_TIME.captures(ts).ok_or(ParseErrorKind::UnknownFormat)?;
-
-        let (_, [relday_s, hhmm_s]) = patts.extract();
+    fn parse_rel_time(&self, relday_s: &str, hhmm_s: &str) -> ParseResult<DateTime<Utc>> {
         let hhmm = parse_hh_mm(hhmm_s)?;
         let day_offset = match relday_s {
             "tänään" => Ok(Days::new(0)),
             "eilen" => Ok(Days::new(1)),
-            _ => Err(ParseErrorKind::InvalidRelativeDay),
+            _ => Err(format!("uknown relative day token: '{relday_s}'")),
         }?;
         let date = self.server_time.date_naive().sub(day_offset);
         let new_ts = self.server_time.offset().with_ymd_and_hms(
@@ -79,10 +70,12 @@ impl DateParser {
         Ok(new_ts.unwrap())
     }
 
-    fn parse_abs_time(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
-        let patts = ABS_TIME.captures(ts).ok_or(ParseErrorKind::UnknownFormat)?;
-
-        let (_, [day_s, month_s, hhmm_s]) = patts.extract();
+    fn parse_abs_time(
+        &self,
+        day_s: &str,
+        month_s: &str,
+        hhmm_s: &str,
+    ) -> ParseResult<DateTime<Utc>> {
         let day = parse_day(day_s)?;
         let month = parse_month_short(month_s)?.number_from_month();
         let hhmm = parse_hh_mm(hhmm_s)?;
@@ -106,18 +99,18 @@ impl DateParser {
 
         new_ts
             .with_year(new_ts.year() - y_offset)
-            .ok_or(ParseErrorKind::UnknownFormat)
+            .ok_or("error calculating timestamp in the past".to_string())
     }
 
     pub fn parse(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
-        // FIXME: this kinda throws away all that parsing context we carefully construct in each subparser.
-        // How do we distinguish between "not a relative time format" and "relative time format, but out of bounds value"
-        if let Ok(res) = self.parse_rel_time(ts) {
-            return Ok(res);
-        } else if let Ok(res) = self.parse_abs_time(ts) {
-            return Ok(res);
+        if let Some(patts) = REL_TIME.captures(ts) {
+            let (_, [relday_s, hhmm_s]) = patts.extract();
+            self.parse_rel_time(relday_s, hhmm_s)
+        } else if let Some(patts) = ABS_TIME.captures(ts) {
+            let (_, [day_s, month_s, hhmm_s]) = patts.extract();
+            self.parse_abs_time(day_s, month_s, hhmm_s)
         } else {
-            return Err(ParseErrorKind::UnknownFormat);
+            Err(format!("unrecognized timestamp format: '{ts}'"))
         }
     }
 }
@@ -129,7 +122,7 @@ mod tests {
     #[test]
     fn test_parse_month_short() {
         assert_eq!(parse_month_short("tam"), Ok(Month::January));
-        assert_eq!(parse_month_short("foo"), Err(ParseErrorKind::InvalidMonth));
+        assert!(parse_month_short("foo").is_err());
     }
 
     #[test]
@@ -149,13 +142,13 @@ mod tests {
     #[test]
     fn test_parse_ts_relative() {
         let parser = DateParser::new(get_time());
-        let result = parser.parse_rel_time("tänään 01:23");
+        let result = parser.parse("tänään 01:23");
         assert_eq!(
             result,
             Ok(Utc.with_ymd_and_hms(2023, 3, 25, 1, 23, 0).unwrap())
         );
 
-        let result = parser.parse_rel_time("eilen 15:59");
+        let result = parser.parse("eilen 15:59");
         assert_eq!(
             result,
             Ok(Utc.with_ymd_and_hms(2023, 3, 24, 15, 59, 0).unwrap())
@@ -165,7 +158,7 @@ mod tests {
     #[test]
     fn test_parse_ts_absolute() {
         let parser = DateParser::new(get_time());
-        let result = parser.parse_abs_time("21 huh 19:52").unwrap();
+        let result = parser.parse("21 huh 19:52").unwrap();
         assert_eq!(
             result,
             Utc.with_ymd_and_hms(2022, 4, 21, 19, 52, 0).unwrap()
