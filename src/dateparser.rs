@@ -46,7 +46,10 @@ fn parse_day(day: &str) -> ParseResult<u32> {
 }
 
 pub struct DateParser {
+    user_tz: chrono_tz::Tz,
     server_time: DateTime<Utc>,
+    user_today: DateTime<chrono_tz::Tz>,
+    user_yesterday: DateTime<chrono_tz::Tz>,
 }
 
 lazy_static! {
@@ -56,24 +59,28 @@ lazy_static! {
 }
 
 impl DateParser {
-    pub fn new(server_time: DateTime<Utc>) -> Self {
+    pub fn new(server_time: DateTime<Utc>, user_tz: chrono_tz::Tz) -> Self {
+        let user_today = server_time.with_timezone(&user_tz);
+        let user_yesterday = user_today.sub(Days::new(1));
+
         DateParser {
+            user_tz: user_tz,
             server_time: server_time,
+            user_today: user_today,
+            user_yesterday: user_yesterday,
         }
     }
 
     fn parse_rel_time(&self, relday_s: &str, hhmm_s: &str) -> ParseResult<DateTime<Utc>> {
         let hhmm = parse_hh_mm(hhmm_s)?;
 
-        let day_offset = match relday_s {
-            "tänään" => Ok(Days::new(0)),
-            "eilen" => Ok(Days::new(1)),
+        let date = match relday_s {
+            "tänään" => Ok(self.user_today.clone()),
+            "eilen" => Ok(self.user_yesterday.clone()),
             _ => Err(ParseError::InvalidRelativeDay(relday_s.to_string())),
         }?;
 
-        let date = self.server_time.date_naive().sub(day_offset);
-
-        let new_ts_maybe = self.server_time.offset().with_ymd_and_hms(
+        let new_ts_maybe = date.timezone().with_ymd_and_hms(
             date.year(),
             date.month(),
             date.day(),
@@ -83,7 +90,7 @@ impl DateParser {
         );
 
         match new_ts_maybe {
-            LocalResult::Single(new_ts) => Ok(new_ts),
+            LocalResult::Single(new_ts) => Ok(new_ts.with_timezone(&Utc)),
             _ => Err(ParseError::ArithmeticProblem),
         }
     }
@@ -98,8 +105,8 @@ impl DateParser {
         let month = parse_month_short(month_s)?;
         let hhmm = parse_hh_mm(hhmm_s)?;
 
-        let new_ts_maybe = self.server_time.offset().with_ymd_and_hms(
-            self.server_time.year(),
+        let new_ts_maybe = self.user_today.timezone().with_ymd_and_hms(
+            self.user_today.year(),
             month.number_from_month(),
             day,
             hhmm.hour(),
@@ -116,9 +123,11 @@ impl DateParser {
         // this assumes no item can be listed for over a year.
         let y_offset = if new_ts > self.server_time { 1 } else { 0 };
 
-        new_ts
+        let new_ts = new_ts
             .with_year(new_ts.year() - y_offset)
-            .ok_or(ParseError::ArithmeticProblem)
+            .ok_or(ParseError::ArithmeticProblem)?;
+
+        Ok(new_ts.with_timezone(&Utc))
     }
 
     pub fn parse(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
@@ -169,17 +178,23 @@ mod tests {
 
     #[test]
     fn test_parse_ts_relative() {
-        let parser = DateParser::new(get_time());
+        let parser = DateParser::new(get_time(), chrono_tz::Europe::Helsinki);
         let result = parser.parse("tänään 01:23");
         assert_eq!(
             result,
-            Ok(Utc.with_ymd_and_hms(2023, 3, 25, 1, 23, 0).unwrap())
+            Ok(chrono_tz::Europe::Helsinki
+                .with_ymd_and_hms(2023, 3, 25, 1, 23, 0)
+                .unwrap()
+                .with_timezone(&Utc))
         );
 
         let result = parser.parse("eilen 15:59");
         assert_eq!(
             result,
-            Ok(Utc.with_ymd_and_hms(2023, 3, 24, 15, 59, 0).unwrap())
+            Ok(chrono_tz::Europe::Helsinki
+                .with_ymd_and_hms(2023, 3, 24, 15, 59, 0)
+                .unwrap()
+                .with_timezone(&Utc))
         );
 
         let result = parser.parse("tänään 25:48");
@@ -188,13 +203,29 @@ mod tests {
 
     #[test]
     fn test_parse_ts_absolute() {
-        let parser = DateParser::new(get_time());
+        let parser = DateParser::new(get_time(), chrono_tz::Europe::Helsinki);
         let result = parser.parse("21 huh 19:52");
         assert_eq!(
             result,
-            Ok(Utc.with_ymd_and_hms(2022, 4, 21, 19, 52, 0).unwrap())
+            Ok(chrono_tz::Europe::Helsinki
+                .with_ymd_and_hms(2022, 4, 21, 19, 52, 0)
+                .unwrap()
+                .with_timezone(&Utc))
         );
         let result = parser.parse("32 tam 01:32");
         assert_eq!(result, Err(ParseError::InvalidDay("32".to_string())));
+    }
+
+    #[test]
+    fn tz_temppu() {
+        use chrono_tz::Europe;
+
+        match Europe::Helsinki.with_ymd_and_hms(2024, 01, 29, 19, 03, 0) {
+            LocalResult::Single(tss) => {
+                println!("tss: {:?}", tss);
+                println!("utc: {:?}", tss.with_timezone(&Utc));
+            }
+            _ => panic!("omg"),
+        }
     }
 }
