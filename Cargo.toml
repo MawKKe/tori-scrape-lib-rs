@@ -1,5 +1,5 @@
 [package]
-name = "tori-scrape-lib-rs"
+name = "tori_scrape_lib"
 version = "0.1.0"
 edition = "2021"
 authors = ["Markus H (MawKKe) <markus@mawkke.fi>"]
