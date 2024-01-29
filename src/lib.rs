@@ -4,7 +4,17 @@ use regex::Regex;
 
 use std::ops::Sub;
 
-pub type ParseResult<T> = Result<T, String>;
+#[derive(Debug, PartialEq)]
+pub enum ParseError {
+    InvalidHighlevelStructure(String),
+    InvalidDay(String),
+    InvalidTime(String),
+    InvalidMonth(String),
+    InvalidRelativeDay(String),
+    ArithmeticProblem,
+}
+
+pub type ParseResult<T> = Result<T, ParseError>;
 
 fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
     match month_short_name {
@@ -20,18 +30,18 @@ fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
         "lok" => Ok(Month::October),
         "mar" => Ok(Month::November),
         "jou" => Ok(Month::December),
-        _ => Err(format!("unknown month: '{month_short_name}'")),
+        _ => Err(ParseError::InvalidMonth(month_short_name.to_string())),
     }
 }
 
 fn parse_hh_mm(time: &str) -> ParseResult<NaiveTime> {
-    NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| format!("invalid time format: '{time}'"))
+    NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| ParseError::InvalidTime(time.to_string()))
 }
 
 fn parse_day(day: &str) -> ParseResult<u32> {
     match day.parse::<u32>() {
         Ok(d) if d >= 1 && d <= 31 => Ok(d),
-        _ => Err(format!("invalid day number: '{day}'")),
+        _ => Err(ParseError::InvalidDay(day.to_string())),
     }
 }
 
@@ -57,7 +67,7 @@ impl DateParser {
         let day_offset = match relday_s {
             "tänään" => Ok(Days::new(0)),
             "eilen" => Ok(Days::new(1)),
-            _ => Err(format!("uknown relative day token: '{relday_s}'")),
+            _ => Err(ParseError::InvalidRelativeDay(relday_s.to_string())),
         }?;
         let date = self.server_time.date_naive().sub(day_offset);
         let new_ts = self.server_time.offset().with_ymd_and_hms(
@@ -100,7 +110,7 @@ impl DateParser {
 
         new_ts
             .with_year(new_ts.year() - y_offset)
-            .ok_or("error calculating timestamp in the past".to_string())
+            .ok_or(ParseError::ArithmeticProblem)
     }
 
     pub fn parse(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
@@ -111,7 +121,7 @@ impl DateParser {
             let (_, [day_s, month_s, hhmm_s]) = patts.extract();
             self.parse_abs_time(day_s, month_s, hhmm_s)
         } else {
-            Err(format!("unrecognized timestamp format: '{ts}'"))
+            Err(ParseError::InvalidHighlevelStructure(ts.to_string()))
         }
     }
 }
@@ -123,7 +133,10 @@ mod tests {
     #[test]
     fn test_parse_month_short() {
         assert_eq!(parse_month_short("tam"), Ok(Month::January));
-        assert!(parse_month_short("foo").is_err());
+        assert_eq!(
+            parse_month_short("foo"),
+            Err(ParseError::InvalidMonth("foo".to_string()))
+        );
     }
 
     #[test]
@@ -132,8 +145,14 @@ mod tests {
             parse_hh_mm("01:23"),
             Ok(NaiveTime::from_hms_opt(1, 23, 0).unwrap())
         );
-        assert!(parse_hh_mm("01:60").is_err());
-        assert!(parse_hh_mm("25:24").is_err());
+        assert_eq!(
+            parse_hh_mm("01:60"),
+            Err(ParseError::InvalidTime("01:60".to_string()))
+        );
+        assert_eq!(
+            parse_hh_mm("25:24"),
+            Err(ParseError::InvalidTime("25:24".to_string()))
+        );
     }
 
     fn get_time() -> DateTime<Utc> {
@@ -154,6 +173,9 @@ mod tests {
             result,
             Ok(Utc.with_ymd_and_hms(2023, 3, 24, 15, 59, 0).unwrap())
         );
+
+        let result = parser.parse("tänään 25:48");
+        assert_eq!(result, Err(ParseError::InvalidTime("25:48".to_string())));
     }
 
     #[test]
@@ -164,5 +186,7 @@ mod tests {
             result,
             Ok(Utc.with_ymd_and_hms(2022, 4, 21, 19, 52, 0).unwrap())
         );
+        let result = parser.parse("32 tam 01:32");
+        assert_eq!(result, Err(ParseError::InvalidDay("32".to_string())));
     }
 }
