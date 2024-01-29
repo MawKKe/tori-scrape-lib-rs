@@ -433,19 +433,6 @@ mod tests {
     }
 
     #[test]
-    fn tz_temppu() {
-        use chrono_tz::Europe;
-
-        match Europe::Helsinki.with_ymd_and_hms(2024, 01, 29, 19, 03, 0) {
-            LocalResult::Single(tss) => {
-                println!("tss: {:?}", tss);
-                println!("utc: {:?}", tss.with_timezone(&Utc));
-            }
-            _ => panic!("omg"),
-        }
-    }
-
-    #[test]
     fn test_parse_day() {
         assert!(parse_day("0").is_err());
         assert!(parse_day("32").is_err());
