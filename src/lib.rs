@@ -23,6 +23,7 @@ fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
         _ => Err(format!("unknown month: '{month_short_name}'")),
     }
 }
+
 fn parse_hh_mm(time: &str) -> ParseResult<NaiveTime> {
     NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| format!("invalid time format: '{time}'"))
 }
