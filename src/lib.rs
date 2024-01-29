@@ -89,15 +89,6 @@ pub fn parse_file(path: &Path) {
     }
 }
 
-fn reformat_ws(input: &str) -> String {
-    let w = input.split_whitespace();
-    w.collect::<Vec<&str>>().join(" ")
-}
-
-fn remove_prefix_maybe(prefix: &str, input: &str) -> String {
-    input.strip_prefix(prefix).unwrap_or(input).to_string()
-}
-
 #[derive(Debug, PartialEq)]
 pub struct Price {
     pub value: i32,
@@ -133,6 +124,35 @@ fn price_parse(input: &str) -> ItemParseResult<Price> {
             })
         }
         None => Err(ItemParseError::InvalidPrice(input.to_string())),
+    }
+}
+
+fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
+    match month_short_name {
+        "tam" => Ok(Month::January),
+        "hel" => Ok(Month::February),
+        "maa" => Ok(Month::March),
+        "huh" => Ok(Month::April),
+        "tou" => Ok(Month::May),
+        "kes" => Ok(Month::June),
+        "hei" => Ok(Month::July),
+        "elo" => Ok(Month::August),
+        "syy" => Ok(Month::September),
+        "lok" => Ok(Month::October),
+        "mar" => Ok(Month::November),
+        "jou" => Ok(Month::December),
+        _ => Err(ParseError::InvalidMonth(month_short_name.to_string())),
+    }
+}
+
+fn parse_hh_mm(time: &str) -> ParseResult<NaiveTime> {
+    NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| ParseError::InvalidTime(time.to_string()))
+}
+
+fn parse_day(day: &str) -> ParseResult<u32> {
+    match day.parse::<u32>() {
+        Ok(d) if d >= 1 && d <= 31 => Ok(d),
+        _ => Err(ParseError::InvalidDay(day.to_string())),
     }
 }
 
@@ -321,13 +341,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_ws() {
-        let s = "\t\t\t\t\tfoo\t\t\tbar\t\t".to_string();
-        let y = reformat_ws(&s);
-        assert_eq!("foo bar".to_string(), y);
-    }
-
-    #[test]
     fn parse_price() {
         assert_eq!(
             price_parse("1 €"),
@@ -436,31 +449,29 @@ mod tests {
     }
 }
 
-fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
-    match month_short_name {
-        "tam" => Ok(Month::January),
-        "hel" => Ok(Month::February),
-        "maa" => Ok(Month::March),
-        "huh" => Ok(Month::April),
-        "tou" => Ok(Month::May),
-        "kes" => Ok(Month::June),
-        "hei" => Ok(Month::July),
-        "elo" => Ok(Month::August),
-        "syy" => Ok(Month::September),
-        "lok" => Ok(Month::October),
-        "mar" => Ok(Month::November),
-        "jou" => Ok(Month::December),
-        _ => Err(ParseError::InvalidMonth(month_short_name.to_string())),
+pub fn reformat_ws(input: &str) -> String {
+    let w = input.split_whitespace();
+    w.collect::<Vec<&str>>().join(" ")
+}
+
+pub fn remove_prefix_maybe(prefix: &str, input: &str) -> String {
+    input.strip_prefix(prefix).unwrap_or(input).to_string()
+}
+
+#[cfg(test)]
+mod utils_tests {
+    use super::*;
+
+    #[test]
+    fn test_remove_prefix() {
+        assert_eq!(remove_prefix_maybe("testi_", "testi_data"), "data");
+        assert_eq!(remove_prefix_maybe("notexist_", "testi_data"), "testi_data");
     }
-}
 
-fn parse_hh_mm(time: &str) -> ParseResult<NaiveTime> {
-    NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| ParseError::InvalidTime(time.to_string()))
-}
-
-fn parse_day(day: &str) -> ParseResult<u32> {
-    match day.parse::<u32>() {
-        Ok(d) if d >= 1 && d <= 31 => Ok(d),
-        _ => Err(ParseError::InvalidDay(day.to_string())),
+    #[test]
+    fn test_reformat_ws() {
+        let s = "\t\t\t\t\tfoo\t\t\tbar\t\t".to_string();
+        let y = reformat_ws(&s);
+        assert_eq!("foo bar".to_string(), y);
     }
 }
