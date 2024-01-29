@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, Days, Month, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, Days, LocalResult, Month, NaiveTime, TimeZone, Timelike, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
 
@@ -64,13 +64,16 @@ impl DateParser {
 
     fn parse_rel_time(&self, relday_s: &str, hhmm_s: &str) -> ParseResult<DateTime<Utc>> {
         let hhmm = parse_hh_mm(hhmm_s)?;
+
         let day_offset = match relday_s {
             "tänään" => Ok(Days::new(0)),
             "eilen" => Ok(Days::new(1)),
             _ => Err(ParseError::InvalidRelativeDay(relday_s.to_string())),
         }?;
+
         let date = self.server_time.date_naive().sub(day_offset);
-        let new_ts = self.server_time.offset().with_ymd_and_hms(
+
+        let new_ts_maybe = self.server_time.offset().with_ymd_and_hms(
             date.year(),
             date.month(),
             date.day(),
@@ -78,7 +81,11 @@ impl DateParser {
             hhmm.minute(),
             0,
         );
-        Ok(new_ts.unwrap())
+
+        match new_ts_maybe {
+            LocalResult::Single(new_ts) => Ok(new_ts),
+            _ => Err(ParseError::ArithmeticProblem),
+        }
     }
 
     fn parse_abs_time(
@@ -88,21 +95,22 @@ impl DateParser {
         hhmm_s: &str,
     ) -> ParseResult<DateTime<Utc>> {
         let day = parse_day(day_s)?;
-        let month = parse_month_short(month_s)?.number_from_month();
+        let month = parse_month_short(month_s)?;
         let hhmm = parse_hh_mm(hhmm_s)?;
 
-        let new_ts = self
-            .server_time
-            .offset()
-            .with_ymd_and_hms(
-                self.server_time.year(),
-                month,
-                day,
-                hhmm.hour(),
-                hhmm.minute(),
-                0,
-            )
-            .unwrap();
+        let new_ts_maybe = self.server_time.offset().with_ymd_and_hms(
+            self.server_time.year(),
+            month.number_from_month(),
+            day,
+            hhmm.hour(),
+            hhmm.minute(),
+            0,
+        );
+
+        let new_ts = match new_ts_maybe {
+            LocalResult::Single(new_ts) => Ok(new_ts),
+            _ => Err(ParseError::ArithmeticProblem),
+        }?;
 
         // timestamp can be in the future; check manually since we lack the actual year.
         // this assumes no item can be listed for over a year.
