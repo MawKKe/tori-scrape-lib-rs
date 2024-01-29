@@ -254,7 +254,10 @@ impl Parser {
                 .and_then(|s| s.parse::<u8>().map_err(|_| ItemParseError::UnexpectedValue))?
                 != 0;
 
-            let href = element.attr("href").ok_or(ItemParseError::MissingHref)?;
+            let href = element
+                .attr("href")
+                .ok_or(ItemParseError::MissingHref)?
+                .to_string();
 
             let price = match {
                 element
@@ -270,21 +273,23 @@ impl Parser {
             let img = element
                 .select(&IMAGE_SELECTOR)
                 .next()
+                .and_then(|n| n.attr("src"))
                 .ok_or(ItemParseError::MissingImg)?
-                .attr("src")
-                .ok_or(ItemParseError::MissingImg)?;
+                .to_string();
 
             let title = element
                 .select(&TITLE_SELECTOR)
                 .next()
-                .ok_or(ItemParseError::MissingTitle)
-                .map(|s| s.inner_html())?;
+                .map(|s| s.inner_html())
+                .ok_or(ItemParseError::MissingTitle)?
+                .trim()
+                .to_string();
 
             let posted_at = element
                 .select(&POSTED_AT_SELECTOR)
                 .next()
-                .ok_or(ItemParseError::MissingPostedAt)
-                .map(|s| reformat_ws(&s.inner_html()))?;
+                .map(|s| reformat_ws(&s.inner_html()))
+                .ok_or(ItemParseError::MissingPostedAt)?;
 
             let posted_at_parsed = self.parse_posted_at(&posted_at).expect("fukken ded");
 
@@ -310,16 +315,16 @@ impl Parser {
             };
 
             let item = Item {
-                id: id.to_string(),
+                id: id,
                 company_ad: company_ad,
-                href: href.to_string(),
+                href: href,
                 price: price,
-                img: img.to_string(),
-                title: title.trim().to_string(),
-                posted_at_orig: posted_at.to_string(),
+                img: img,
+                title: title,
+                posted_at_orig: posted_at,
                 posted_at: posted_at_parsed,
-                location: location.to_string(),
-                direction: direction.to_string(),
+                location: location,
+                direction: direction,
                 seller: seller_maybe,
             };
 
