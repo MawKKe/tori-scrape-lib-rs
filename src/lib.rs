@@ -1,15 +1,15 @@
 pub mod dateparser;
 
-use chrono::{DateTime, Utc};
-use scraper::Html;
-
 use std::fs;
 use std::path::Path;
 
+use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use encoding_rs::ISO_8859_15;
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use lazy_static::lazy_static;
 use regex::Regex;
+use scraper::Html;
 use scraper::Selector;
 use std::io::BufReader;
 use std::io::Read;
@@ -22,8 +22,8 @@ pub struct Item {
     pub price: Option<Price>,
     pub img: String,
     pub title: String,
-    pub posted_at: String,
-    pub posted_at_parsed: DateTime<Utc>,
+    pub posted_at_orig: String,
+    pub posted_at: DateTime<Utc>,
     pub location: String,
     pub direction: String,
     pub seller: Option<String>,
@@ -34,6 +34,12 @@ pub enum ItemParseError {
     Success,
     MissingID,
     MissingTitle,
+    MissingHref,
+    MissingCompanyAd,
+    MissingImg,
+    MissingPostedAt,
+    UnexpectedValue,
+    NotEnoughItems,
     InvalidPrice(String),
 }
 
@@ -51,10 +57,9 @@ pub fn parse_file(path: &Path) {
     assert!(n > 0);
     let doc = Html::parse_document(&buf);
     let parser = Parser::new(chrono_tz::Europe::Helsinki, Utc::now());
-    let mut items: Vec<Item> = vec![];
-    let result = parser.parse_document(&doc, &mut items);
+    let result = parser.parse_document(&doc);
     match result {
-        Ok(_) => {
+        Ok(items) => {
             for itm in items {
                 println!("{:#?}", itm);
             }
@@ -68,6 +73,10 @@ pub fn parse_file(path: &Path) {
 fn reformat_ws(input: &str) -> String {
     let w = input.split_whitespace();
     w.collect::<Vec<&str>>().join(" ")
+}
+
+fn remove_prefix_maybe(prefix: &str, input: &str) -> String {
+    input.strip_prefix(prefix).unwrap_or(input).to_string()
 }
 
 #[derive(Debug, PartialEq)]
@@ -110,8 +119,6 @@ struct Parser {
     server_time: DateTime<Utc>,
 }
 
-use chrono_tz::Tz;
-
 impl Parser {
     pub fn new(user_tz: Tz, server_time: DateTime<Utc>) -> Self {
         Parser {
@@ -119,22 +126,30 @@ impl Parser {
             server_time,
         }
     }
-    pub fn parse_document(&self, doc: &Html, items: &mut Vec<Item>) -> Result<(), ItemParseError> {
+    pub fn parse_document(&self, doc: &Html) -> Result<Vec<Item>, ItemParseError> {
+        let mut items = vec![];
         let dp = dateparser::DateParser::new(self.server_time, self.user_tz);
         for element in doc.select(&ROW_SELECTOR) {
-            let id = element.attr("id").unwrap_or("null");
+            let id = element
+                .attr("id")
+                .ok_or(ItemParseError::MissingTitle)
+                .map(|s| remove_prefix_maybe("item_", &s))?;
 
-            let id = id.strip_prefix("item_").unwrap_or(id);
+            let company_ad = element
+                .attr("data-company-ad")
+                .ok_or(ItemParseError::MissingCompanyAd)
+                .and_then(|s| s.parse::<u8>().map_err(|_| ItemParseError::UnexpectedValue))?
+                != 0;
 
-            let company_ad = element.attr("data-company-ad").unwrap_or("0") == "1";
+            let href = element.attr("href").ok_or(ItemParseError::MissingHref)?;
 
-            let href = element.attr("href").unwrap_or("null");
-
-            let price_maybe = element.select(&PRICE_SELECTOR).next();
-            let price_maybe = price_maybe.map(|n| n.text().collect::<String>());
-            let price_maybe = price_maybe.filter(|s| !s.is_empty());
-
-            let price = match price_maybe {
+            let price = match {
+                element
+                    .select(&PRICE_SELECTOR)
+                    .next()
+                    .map(|n| n.text().collect::<String>())
+                    .filter(|s| !s.is_empty())
+            } {
                 None => None,
                 Some(t) => Some(price_parse(&t)?),
             };
@@ -144,13 +159,19 @@ impl Parser {
                 .next()
                 .unwrap()
                 .attr("src")
-                .unwrap_or("");
+                .ok_or(ItemParseError::MissingImg)?;
 
-            let title_node = element.select(&TITLE_SELECTOR).next().unwrap();
-            let title = title_node.text().next().unwrap();
+            let title = element
+                .select(&TITLE_SELECTOR)
+                .next()
+                .ok_or(ItemParseError::MissingTitle)
+                .map(|s| s.inner_html())?;
 
-            let posted_at_node = element.select(&POSTED_AT_SELECTOR).next().unwrap();
-            let posted_at = posted_at_node.text().next().map(reformat_ws).unwrap();
+            let posted_at = element
+                .select(&POSTED_AT_SELECTOR)
+                .next()
+                .ok_or(ItemParseError::MissingPostedAt)
+                .map(|s| reformat_ws(&s.inner_html()))?;
 
             let posted_at_parsed = dp.parse(&posted_at).expect("fukken ded");
 
@@ -159,8 +180,11 @@ impl Parser {
                 .map(|n| reformat_ws(&n.inner_html()))
                 .collect::<Vec<String>>();
 
-            let location = &combined[0];
+            if combined.len() < 2 {
+                return Err(ItemParseError::NotEnoughItems);
+            }
 
+            let location = &combined[0];
             let direction = &combined[1];
 
             let seller_maybe = if combined.len() > 2 {
@@ -176,15 +200,16 @@ impl Parser {
                 price: price,
                 img: img.to_string(),
                 title: title.trim().to_string(),
-                posted_at: posted_at.to_string(),
-                posted_at_parsed: posted_at_parsed,
+                posted_at_orig: posted_at.to_string(),
+                posted_at: posted_at_parsed,
                 location: location.to_string(),
                 direction: direction.to_string(),
                 seller: seller_maybe,
             };
+
             items.push(item);
         }
-        Ok(())
+        Ok(items)
     }
 }
 
