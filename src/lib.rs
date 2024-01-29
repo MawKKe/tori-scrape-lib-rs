@@ -159,10 +159,10 @@ mod tests {
     #[test]
     fn test_parse_ts_absolute() {
         let parser = DateParser::new(get_time());
-        let result = parser.parse("21 huh 19:52").unwrap();
+        let result = parser.parse("21 huh 19:52");
         assert_eq!(
             result,
-            Utc.with_ymd_and_hms(2022, 4, 21, 19, 52, 0).unwrap()
+            Ok(Utc.with_ymd_and_hms(2022, 4, 21, 19, 52, 0).unwrap())
         );
     }
 }
