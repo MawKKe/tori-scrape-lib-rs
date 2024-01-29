@@ -426,6 +426,14 @@ mod tests {
             _ => panic!("omg"),
         }
     }
+
+    #[test]
+    fn test_parse_day() {
+        assert!(parse_day("0").is_err());
+        assert!(parse_day("32").is_err());
+        assert!(parse_day("1").unwrap() == 1);
+        assert!(parse_day("31").unwrap() == 31);
+    }
 }
 
 fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
