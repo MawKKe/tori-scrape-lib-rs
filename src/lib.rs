@@ -38,6 +38,8 @@ pub enum ItemParseError {
     MissingCompanyAd,
     MissingImg,
     MissingPostedAt,
+    MissingLocation,
+    MissingDirection,
     UnexpectedValue,
     NotEnoughItems,
     InvalidPrice(String),
@@ -90,7 +92,7 @@ lazy_static! {
     static ref ROW_SELECTOR: Selector = Selector::parse("a[data-row]").unwrap();
     static ref TITLE_SELECTOR: Selector = Selector::parse("div .li-title").unwrap();
     static ref PRICE_SELECTOR: Selector = Selector::parse("p .list_price, .ineuros").unwrap();
-    static ref IMAGE_SELECTOR: Selector = Selector::parse("div .item_image").unwrap();
+    static ref IMAGE_SELECTOR: Selector = Selector::parse("div .item_image[src]").unwrap();
     static ref POSTED_AT_SELECTOR: Selector = Selector::parse("div .date_image").unwrap();
     static ref COMBINED_SELECTOR: Selector = Selector::parse("div .cat_geo > p").unwrap();
 }
@@ -157,7 +159,7 @@ impl Parser {
             let img = element
                 .select(&IMAGE_SELECTOR)
                 .next()
-                .unwrap()
+                .ok_or(ItemParseError::MissingImg)?
                 .attr("src")
                 .ok_or(ItemParseError::MissingImg)?;
 
@@ -175,6 +177,7 @@ impl Parser {
 
             let posted_at_parsed = dp.parse(&posted_at).expect("fukken ded");
 
+            /*
             let combined = element
                 .select(&COMBINED_SELECTOR)
                 .map(|n| reformat_ws(&n.inner_html()))
@@ -184,13 +187,33 @@ impl Parser {
                 return Err(ItemParseError::NotEnoughItems);
             }
 
-            let location = &combined[0];
-            let direction = &combined[1];
+            let [location, direction] = &combined[0..1];
 
             let seller_maybe = if combined.len() > 2 {
                 Some(combined[2..].join(" "))
             } else {
                 None
+            };
+            */
+            let mut combined = element.select(&COMBINED_SELECTOR);
+
+            let location = combined
+                .next()
+                .map(|n| reformat_ws(&n.inner_html()))
+                .ok_or(ItemParseError::MissingLocation)?;
+
+            let direction = combined
+                .next()
+                .map(|n| reformat_ws(&n.inner_html()))
+                .ok_or(ItemParseError::MissingDirection)?;
+
+            let seller_maybe = match {
+                combined
+                    .map(|n| reformat_ws(&n.inner_html()))
+                    .collect::<Vec<String>>()
+            } {
+                v if v.len() == 0 => None,
+                v => Some(v.join(" ")),
             };
 
             let item = Item {
