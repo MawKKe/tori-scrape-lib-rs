@@ -375,18 +375,28 @@ mod tests {
 
     #[test]
     fn test_parse_file() {
+        let tz = "Europe/Helsinki".parse::<Tz>().unwrap();
         let parent = Path::new(file!()).parent().unwrap();
-        let path = &parent.join("testdata/2024-01-30-123020-dump.html");
-        let buf = decode_to_string(path, encoding_lookup("ISO_8859_15").unwrap());
-        let parser = Parser::new("Europe/Helsinki".parse::<Tz>().unwrap(), get_time());
-        let result = parser.parse_from_string(&buf);
 
-        let items = result.unwrap();
+        let test_data = vec![
+            (
+                "testdata/2023-03-25-105201-dump.html",
+                tz.with_ymd_and_hms(2023, 03, 25, 10, 52, 01).unwrap(),
+                40,
+            ),
+            (
+                "testdata/2024-01-30-123020-dump.html",
+                tz.with_ymd_and_hms(2024, 1, 30, 12, 30, 20).unwrap(),
+                12,
+            ),
+        ];
 
-        assert_eq!(items.len(), 12);
-
-        for itm in items {
-            println!("{:#?}", itm);
+        for (path, date, expect_num_items) in test_data {
+            let path = &parent.join(path);
+            let buf = decode_to_string(path, encoding_lookup("ISO_8859_15").unwrap());
+            let parser = Parser::new(tz, date.with_timezone(&Utc));
+            let result = parser.parse_from_string(&buf).unwrap();
+            assert_eq!(result.len(), expect_num_items);
         }
     }
 
