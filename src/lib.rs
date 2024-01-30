@@ -32,6 +32,7 @@ pub struct Item {
 
 #[derive(Debug, PartialEq)]
 pub enum ItemParseErrorKind {
+    MissingID,
     MissingTitle,
     MissingHref,
     MissingCompanyAd,
@@ -45,7 +46,8 @@ pub enum ItemParseErrorKind {
 
 #[derive(Debug, PartialEq)]
 pub struct ItemParseError {
-    pub item_id: String,
+    pub item_idx: usize,
+    pub item_id: Option<String>,
     pub error: ItemParseErrorKind,
 }
 
@@ -220,27 +222,38 @@ impl Parser {
 
     pub fn parse_document(&self, doc: &Html) -> ItemParseResult<Vec<Item>> {
         let mut items = vec![];
-
         use ItemParseErrorKind::*;
 
-        for element in doc.select(&ROW_SELECTOR) {
-            let item_id = element
-                .attr("id")
-                .map(|s| remove_prefix_maybe("item_", &s))
-                .unwrap()
-                .to_string(); // FIXME
-                              //.ok_or(ItemParseErrorKind::MissingTitle)?;
+        for (i, element) in doc.select(&ROW_SELECTOR).enumerate() {
+            let item_id = {
+                let item_id = element.attr("id").ok_or(ItemParseError {
+                    item_idx: i,
+                    item_id: None,
+                    error: MissingID,
+                })?;
 
+                item_id
+                    .strip_prefix("item_")
+                    .ok_or(ItemParseError {
+                        item_idx: i,
+                        item_id: None,
+                        error: UnexpectedValue(item_id.to_string()),
+                    })?
+                    .to_string()
+            };
             let is_company_ad = {
                 let s = element.attr("data-company-ad").ok_or(ItemParseError {
-                    item_id: item_id.clone(),
+                    item_idx: i,
+                    item_id: Some(item_id.clone()),
                     error: MissingCompanyAd,
                 })?;
+
                 match s {
                     "0" => Ok(false),
                     "1" => Ok(true),
                     _ => Err(ItemParseError {
-                        item_id: item_id.clone(),
+                        item_idx: i,
+                        item_id: Some(item_id.clone()),
                         error: UnexpectedValue(format!("data-company-ad=\"{}\"", s)),
                     }),
                 }
@@ -250,7 +263,8 @@ impl Parser {
                 .attr("href")
                 .map(|s| s.to_string())
                 .ok_or(ItemParseError {
-                    item_id: item_id.clone(),
+                    item_idx: i,
+                    item_id: Some(item_id.clone()),
                     error: MissingHref,
                 })?;
 
@@ -276,7 +290,8 @@ impl Parser {
                 .next()
                 .map(|s| s.inner_html())
                 .ok_or(ItemParseError {
-                    item_id: item_id.clone(),
+                    item_idx: i,
+                    item_id: Some(item_id.clone()),
                     error: MissingTitle,
                 })?
                 .trim()
@@ -287,7 +302,8 @@ impl Parser {
                 .next()
                 .map(|s| reformat_ws(&s.inner_html()))
                 .ok_or(ItemParseError {
-                    item_id: item_id.clone(),
+                    item_idx: i,
+                    item_id: Some(item_id.clone()),
                     error: MissingPostedAt,
                 })?;
 
@@ -299,7 +315,8 @@ impl Parser {
                 .next()
                 .map(|n| reformat_ws(&n.inner_html()))
                 .ok_or(ItemParseError {
-                    item_id: item_id.clone(),
+                    item_idx: i,
+                    item_id: Some(item_id.clone()),
                     error: MissingLocation,
                 })?;
 
@@ -307,7 +324,8 @@ impl Parser {
                 .next()
                 .map(|n| reformat_ws(&n.inner_html()))
                 .ok_or(ItemParseError {
-                    item_id: item_id.clone(),
+                    item_idx: i,
+                    item_id: Some(item_id.clone()),
                     error: MissingDirection,
                 })?;
 
