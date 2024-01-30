@@ -16,16 +16,16 @@ use std::ops::Sub;
 #[derive(Debug)]
 pub struct Item {
     pub id: String,
-    pub company_ad: bool,
-    pub href: String,
-    pub price: Option<Price>,
-    pub img: String,
+    pub direction: String,
     pub title: String,
+    pub price: Option<Price>,
+    pub location: String,
+    pub seller: Option<String>,
+    pub is_company_ad: bool,
+    pub href: String,
+    pub img: String,
     pub posted_at_orig: String,
     pub posted_at: DateTime<Utc>,
-    pub location: String,
-    pub direction: String,
-    pub seller: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -128,7 +128,7 @@ fn price_parse(input: &str) -> ItemParseResult<Price> {
 }
 
 fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
-    match month_short_name {
+    match &month_short_name.to_lowercase()[..] {
         "tam" => Ok(Month::January),
         "hel" => Ok(Month::February),
         "maa" => Ok(Month::March),
@@ -245,19 +245,24 @@ impl Parser {
         for element in doc.select(&ROW_SELECTOR) {
             let id = element
                 .attr("id")
-                .ok_or(ItemParseError::MissingTitle)
-                .map(|s| remove_prefix_maybe("item_", &s))?;
+                .map(|s| remove_prefix_maybe("item_", &s))
+                .ok_or(ItemParseError::MissingTitle)?;
 
-            let company_ad = element
-                .attr("data-company-ad")
-                .ok_or(ItemParseError::MissingCompanyAd)
-                .and_then(|s| s.parse::<u8>().map_err(|_| ItemParseError::UnexpectedValue))?
-                != 0;
+            let is_company_ad = {
+                let s = element
+                    .attr("data-company-ad")
+                    .ok_or(ItemParseError::MissingCompanyAd)?;
+                match s {
+                    "0" => Ok(false),
+                    "1" => Ok(true),
+                    _ => Err(ItemParseError::UnexpectedValue),
+                }
+            }?;
 
             let href = element
                 .attr("href")
-                .ok_or(ItemParseError::MissingHref)?
-                .to_string();
+                .map(|s| s.to_string())
+                .ok_or(ItemParseError::MissingHref)?;
 
             let price = match {
                 element
@@ -316,15 +321,15 @@ impl Parser {
 
             let item = Item {
                 id: id,
-                company_ad: company_ad,
+                direction: direction,
+                title: title,
+                is_company_ad: is_company_ad,
                 href: href,
                 price: price,
                 img: img,
-                title: title,
                 posted_at_orig: posted_at,
                 posted_at: posted_at_parsed,
                 location: location,
-                direction: direction,
                 seller: seller_maybe,
             };
 
