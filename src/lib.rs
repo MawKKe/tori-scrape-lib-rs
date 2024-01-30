@@ -64,7 +64,6 @@ pub type DateParseResult<T> = Result<T, DateParseError>;
 type ItemParseResult<T> = Result<T, ItemParseError>;
 
 pub struct Parser {
-    server_time: DateTime<Utc>,
     user_today: DateTime<chrono_tz::Tz>,
     user_yesterday: DateTime<chrono_tz::Tz>,
 }
@@ -149,14 +148,10 @@ fn parse_day(day: &str) -> DateParseResult<u32> {
 }
 
 impl Parser {
-    pub fn new(user_tz: Tz, server_time: DateTime<Utc>) -> Self {
-        let user_today = server_time.with_timezone(&user_tz);
-        let user_yesterday = user_today.sub(Days::new(1));
-
+    pub fn new(fetch_time: DateTime<Tz>) -> Self {
         Parser {
-            server_time: server_time,
-            user_today: user_today,
-            user_yesterday: user_yesterday,
+            user_today: fetch_time,
+            user_yesterday: fetch_time.sub(Days::new(1)),
         }
     }
 
@@ -202,7 +197,7 @@ impl Parser {
 
         // timestamp can be in the future; check manually since we lack the actual year.
         // this assumes no item can be listed for over a year.
-        let y_offset = if new_ts > self.server_time { 1 } else { 0 };
+        let y_offset = if new_ts > self.user_today { 1 } else { 0 };
 
         let new_ts = new_ts
             .with_year(new_ts.year() - y_offset)
@@ -391,10 +386,10 @@ mod tests {
             ),
         ];
 
-        for (path, date, expect_num_items) in test_data {
+        for (path, fetch_time, expect_num_items) in test_data {
             let path = &parent.join(path);
             let buf = decode_to_string(path, encoding_lookup("ISO_8859_15").unwrap());
-            let parser = Parser::new(tz, date.with_timezone(&Utc));
+            let parser = Parser::new(fetch_time);
             let result = parser.parse_from_string(&buf).unwrap();
             assert_eq!(result.len(), expect_num_items);
         }
@@ -443,13 +438,16 @@ mod tests {
         );
     }
 
-    fn get_time() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2023, 3, 25, 10, 52, 1).unwrap()
+    fn get_time() -> DateTime<Tz> {
+        timezone_lookup("Europe/Helsinki")
+            .unwrap()
+            .with_ymd_and_hms(2023, 3, 25, 10, 52, 1)
+            .unwrap()
     }
 
     #[test]
     fn test_parse_ts_relative() {
-        let parser = Parser::new("Europe/Helsinki".parse::<Tz>().unwrap(), get_time());
+        let parser = Parser::new(get_time());
 
         let result = parser.parse_posted_at("tänään 01:23");
 
@@ -479,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_parse_ts_absolute() {
-        let parser = Parser::new("Europe/Helsinki".parse::<Tz>().unwrap(), get_time());
+        let parser = Parser::new(get_time());
         let result = parser.parse_posted_at("21 huh 19:52");
         assert_eq!(
             result,
