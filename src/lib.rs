@@ -194,13 +194,13 @@ impl Parser {
     ) -> ParseResult<DateTime<Utc>> {
         let day = parse_day(day_s)?;
         let month = parse_month_short(month_s)?;
-        let hhmm = parse_hh_mm(hhmm_s)?;
+        let naive_time = parse_hh_mm(hhmm_s)?;
         let new_ts_maybe = self.user_today.timezone().with_ymd_and_hms(
             self.user_today.year(),
             month.number_from_month(),
             day,
-            hhmm.hour(),
-            hhmm.minute(),
+            naive_time.hour(),
+            naive_time.minute(),
             0,
         );
 
@@ -303,13 +303,14 @@ impl Parser {
                 .map(|n| reformat_ws(&n.inner_html()))
                 .ok_or(ItemParseError::MissingDirection)?;
 
-            let seller_maybe = match {
-                combined
+            let seller_maybe = {
+                let v = combined
                     .map(|n| reformat_ws(&n.inner_html()))
-                    .collect::<Vec<String>>()
-            } {
-                v if v.len() == 0 => None,
-                v => Some(v.join(" ")),
+                    .collect::<Vec<String>>();
+                match v.len() {
+                    0 => None,
+                    _ => Some(v.join(" ")),
+                }
             };
 
             let item = Item {
