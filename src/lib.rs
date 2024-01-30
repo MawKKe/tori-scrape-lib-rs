@@ -4,7 +4,7 @@ use std::path::Path;
 use chrono::NaiveDateTime;
 use chrono::{DateTime, Datelike, Days, LocalResult, Month, NaiveTime, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
-use encoding_rs::ISO_8859_15;
+use encoding_rs;
 use encoding_rs_io::DecodeReaderBytesBuilder;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -16,7 +16,7 @@ use std::ops::Sub;
 
 #[derive(Debug)]
 pub struct Item {
-    pub id: String,
+    pub item_id: String,
     pub direction: String,
     pub title: String,
     pub price: Option<Price>,
@@ -24,15 +24,13 @@ pub struct Item {
     pub seller: Option<String>,
     pub is_company_ad: bool,
     pub href: String,
-    pub img: String,
+    pub thumbnail_url: Option<String>,
     pub posted_at_orig: String,
     pub posted_at: DateTime<Utc>,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ItemParseError {
-    Success,
-    MissingID,
+pub enum ItemParseErrorKind {
     MissingTitle,
     MissingHref,
     MissingCompanyAd,
@@ -40,13 +38,18 @@ pub enum ItemParseError {
     MissingPostedAt,
     MissingLocation,
     MissingDirection,
-    UnexpectedValue,
-    NotEnoughItems,
+    UnexpectedValue(String),
     InvalidPrice(String),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ParseError {
+pub struct ItemParseError {
+    pub item_id: String,
+    pub error: ItemParseErrorKind,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum DateParseError {
     InvalidHighlevelStructure(String),
     InvalidDay(String),
     InvalidTime(String),
@@ -55,7 +58,7 @@ pub enum ParseError {
     ArithmeticProblem,
 }
 
-pub type ParseResult<T> = Result<T, ParseError>;
+pub type DateParseResult<T> = Result<T, DateParseError>;
 
 type ItemParseResult<T> = Result<T, ItemParseError>;
 
@@ -65,29 +68,15 @@ pub struct Parser {
     user_yesterday: DateTime<chrono_tz::Tz>,
 }
 
-pub fn parse_file(path: &Path) {
-    let file = fs::File::open(path).unwrap();
-    let transcoded = DecodeReaderBytesBuilder::new()
-        .encoding(Some(ISO_8859_15))
-        .build(file);
-
-    let mut reader = BufReader::new(transcoded);
-    let mut buf = String::new();
-    let n = reader.read_to_string(&mut buf).unwrap();
-    assert!(n > 0);
-    let doc = Html::parse_document(&buf);
-    let parser = Parser::new(chrono_tz::Europe::Helsinki, Utc::now());
-    let result = parser.parse_document(&doc);
-    match result {
-        Ok(items) => {
-            for itm in items {
-                println!("{:#?}", itm);
-            }
-        }
-        Err(e) => {
-            println!("could not parse items: {:?}", e);
-        }
+pub fn encoding_lookup(name: &str) -> Option<&'static encoding_rs::Encoding> {
+    match name {
+        "ISO_8859_15" => Some(encoding_rs::ISO_8859_15),
+        _ => Some(encoding_rs::UTF_8),
     }
+}
+
+pub fn timezone_lookup(name: &str) -> Result<Tz, String> {
+    name.parse::<Tz>()
 }
 
 #[derive(Debug, PartialEq)]
@@ -109,7 +98,7 @@ lazy_static! {
         Regex::new(r"\s*(\d{1,2})\s+([a-zA-Z]{3})\s+(\d{2}:\d{2})\s*").unwrap();
 }
 
-fn price_parse(input: &str) -> ItemParseResult<Price> {
+fn price_parse(input: &str) -> Result<Price, ItemParseErrorKind> {
     // note: input must not be empty
     match PRICE_PATT.captures(input) {
         Some(patts) => {
@@ -118,17 +107,17 @@ fn price_parse(input: &str) -> ItemParseResult<Price> {
                 .split_whitespace()
                 .collect::<String>()
                 .parse::<i32>()
-                .map_err(|_| ItemParseError::InvalidPrice(input.to_string()))?;
+                .map_err(|_| ItemParseErrorKind::InvalidPrice(input.to_string()))?;
             Ok(Price {
                 value: value,
                 unit: unit.to_string(),
             })
         }
-        None => Err(ItemParseError::InvalidPrice(input.to_string())),
+        None => Err(ItemParseErrorKind::InvalidPrice(input.to_string())),
     }
 }
 
-fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
+fn parse_month_short(month_short_name: &str) -> DateParseResult<Month> {
     match &month_short_name.to_lowercase()[..] {
         "tam" => Ok(Month::January),
         "hel" => Ok(Month::February),
@@ -142,18 +131,19 @@ fn parse_month_short(month_short_name: &str) -> ParseResult<Month> {
         "lok" => Ok(Month::October),
         "mar" => Ok(Month::November),
         "jou" => Ok(Month::December),
-        _ => Err(ParseError::InvalidMonth(month_short_name.to_string())),
+        _ => Err(DateParseError::InvalidMonth(month_short_name.to_string())),
     }
 }
 
-fn parse_hh_mm(time: &str) -> ParseResult<NaiveTime> {
-    NaiveTime::parse_from_str(time, "%H:%M").map_err(|_| ParseError::InvalidTime(time.to_string()))
+fn parse_hh_mm(time: &str) -> DateParseResult<NaiveTime> {
+    NaiveTime::parse_from_str(time, "%H:%M")
+        .map_err(|_| DateParseError::InvalidTime(time.to_string()))
 }
 
-fn parse_day(day: &str) -> ParseResult<u32> {
+fn parse_day(day: &str) -> DateParseResult<u32> {
     match day.parse::<u32>() {
         Ok(d) if d >= 1 && d <= 31 => Ok(d),
-        _ => Err(ParseError::InvalidDay(day.to_string())),
+        _ => Err(DateParseError::InvalidDay(day.to_string())),
     }
 }
 
@@ -169,20 +159,20 @@ impl Parser {
         }
     }
 
-    fn parse_rel_time(&self, relday_s: &str, hhmm_s: &str) -> ParseResult<DateTime<Utc>> {
+    fn parse_rel_time(&self, relday_s: &str, hhmm_s: &str) -> DateParseResult<DateTime<Utc>> {
         let naive_time = parse_hh_mm(hhmm_s)?;
 
         let naive_date = match relday_s {
             "tänään" => Ok(self.user_today.date_naive()),
             "eilen" => Ok(self.user_yesterday.date_naive()),
-            _ => Err(ParseError::InvalidRelativeDay(relday_s.to_string())),
+            _ => Err(DateParseError::InvalidRelativeDay(relday_s.to_string())),
         }?;
 
         let date = NaiveDateTime::new(naive_date, naive_time);
 
         match self.user_today.timezone().from_local_datetime(&date) {
             LocalResult::Single(new_ts) => Ok(new_ts.with_timezone(&Utc)),
-            _ => Err(ParseError::ArithmeticProblem),
+            _ => Err(DateParseError::ArithmeticProblem),
         }
     }
 
@@ -191,7 +181,7 @@ impl Parser {
         day_s: &str,
         month_s: &str,
         hhmm_s: &str,
-    ) -> ParseResult<DateTime<Utc>> {
+    ) -> DateParseResult<DateTime<Utc>> {
         let day = parse_day(day_s)?;
         let month = parse_month_short(month_s)?;
         let naive_time = parse_hh_mm(hhmm_s)?;
@@ -206,7 +196,7 @@ impl Parser {
 
         let new_ts = match new_ts_maybe {
             LocalResult::Single(new_ts) => Ok(new_ts),
-            _ => Err(ParseError::ArithmeticProblem),
+            _ => Err(DateParseError::ArithmeticProblem),
         }?;
 
         // timestamp can be in the future; check manually since we lack the actual year.
@@ -215,12 +205,12 @@ impl Parser {
 
         let new_ts = new_ts
             .with_year(new_ts.year() - y_offset)
-            .ok_or(ParseError::ArithmeticProblem)?;
+            .ok_or(DateParseError::ArithmeticProblem)?;
 
         Ok(new_ts.with_timezone(&Utc))
     }
 
-    pub fn parse_posted_at(&self, ts: &str) -> ParseResult<DateTime<Utc>> {
+    pub fn parse_posted_at(&self, ts: &str) -> DateParseResult<DateTime<Utc>> {
         if let Some(patts) = REL_TIME.captures(ts) {
             let (_, [relday_s, hhmm_s]) = patts.extract();
             self.parse_rel_time(relday_s, hhmm_s)
@@ -228,34 +218,45 @@ impl Parser {
             let (_, [day_s, month_s, hhmm_s]) = patts.extract();
             self.parse_abs_time(day_s, month_s, hhmm_s)
         } else {
-            Err(ParseError::InvalidHighlevelStructure(ts.to_string()))
+            Err(DateParseError::InvalidHighlevelStructure(ts.to_string()))
         }
     }
 
-    pub fn parse_document(&self, doc: &Html) -> Result<Vec<Item>, ItemParseError> {
+    pub fn parse_document(&self, doc: &Html) -> ItemParseResult<Vec<Item>> {
         let mut items = vec![];
 
+        use ItemParseErrorKind::*;
+
         for element in doc.select(&ROW_SELECTOR) {
-            let id = element
+            let item_id = element
                 .attr("id")
                 .map(|s| remove_prefix_maybe("item_", &s))
-                .ok_or(ItemParseError::MissingTitle)?;
+                .unwrap()
+                .to_string(); // FIXME
+                              //.ok_or(ItemParseErrorKind::MissingTitle)?;
 
             let is_company_ad = {
-                let s = element
-                    .attr("data-company-ad")
-                    .ok_or(ItemParseError::MissingCompanyAd)?;
+                let s = element.attr("data-company-ad").ok_or(ItemParseError {
+                    item_id: item_id.clone(),
+                    error: MissingCompanyAd,
+                })?;
                 match s {
                     "0" => Ok(false),
                     "1" => Ok(true),
-                    _ => Err(ItemParseError::UnexpectedValue),
+                    _ => Err(ItemParseError {
+                        item_id: item_id.clone(),
+                        error: UnexpectedValue(format!("data-company-ad=\"{}\"", s)),
+                    }),
                 }
             }?;
 
             let href = element
                 .attr("href")
                 .map(|s| s.to_string())
-                .ok_or(ItemParseError::MissingHref)?;
+                .ok_or(ItemParseError {
+                    item_id: item_id.clone(),
+                    error: MissingHref,
+                })?;
 
             let price = match {
                 element
@@ -265,21 +266,23 @@ impl Parser {
                     .filter(|s| !s.is_empty())
             } {
                 None => None,
-                Some(t) => Some(price_parse(&t)?),
+                Some(t) => Some(price_parse(&t).unwrap()), // FIXME
             };
 
-            let img = element
+            let thumbnail_url = element
                 .select(&IMAGE_SELECTOR)
                 .next()
                 .and_then(|n| n.attr("src"))
-                .ok_or(ItemParseError::MissingImg)?
-                .to_string();
+                .map(|s| s.to_string());
 
             let title = element
                 .select(&TITLE_SELECTOR)
                 .next()
                 .map(|s| s.inner_html())
-                .ok_or(ItemParseError::MissingTitle)?
+                .ok_or(ItemParseError {
+                    item_id: item_id.clone(),
+                    error: MissingTitle,
+                })?
                 .trim()
                 .to_string();
 
@@ -287,7 +290,10 @@ impl Parser {
                 .select(&POSTED_AT_SELECTOR)
                 .next()
                 .map(|s| reformat_ws(&s.inner_html()))
-                .ok_or(ItemParseError::MissingPostedAt)?;
+                .ok_or(ItemParseError {
+                    item_id: item_id.clone(),
+                    error: MissingPostedAt,
+                })?;
 
             let posted_at_parsed = self.parse_posted_at(&posted_at).expect("fukken ded");
 
@@ -296,12 +302,18 @@ impl Parser {
             let location = combined
                 .next()
                 .map(|n| reformat_ws(&n.inner_html()))
-                .ok_or(ItemParseError::MissingLocation)?;
+                .ok_or(ItemParseError {
+                    item_id: item_id.clone(),
+                    error: MissingLocation,
+                })?;
 
             let direction = combined
                 .next()
                 .map(|n| reformat_ws(&n.inner_html()))
-                .ok_or(ItemParseError::MissingDirection)?;
+                .ok_or(ItemParseError {
+                    item_id: item_id.clone(),
+                    error: MissingDirection,
+                })?;
 
             let seller_maybe = {
                 let v = combined
@@ -314,13 +326,13 @@ impl Parser {
             };
 
             let item = Item {
-                id: id,
+                item_id: item_id,
                 direction: direction,
                 title: title,
                 is_company_ad: is_company_ad,
                 href: href,
                 price: price,
-                img: img,
+                thumbnail_url: thumbnail_url,
                 posted_at_orig: posted_at,
                 posted_at: posted_at_parsed,
                 location: location,
@@ -331,6 +343,29 @@ impl Parser {
         }
         Ok(items)
     }
+
+    pub fn parse_from_string(&self, buf: &str) -> ItemParseResult<Vec<Item>> {
+        let doc = Html::parse_document(buf);
+        self.parse_document(&doc)
+    }
+}
+
+pub fn decode_to_string(path: &Path, encoding: &'static encoding_rs::Encoding) -> String {
+    let file = fs::File::open(path).unwrap();
+
+    let transcoded = DecodeReaderBytesBuilder::new()
+        .encoding(Some(encoding))
+        .build(file);
+
+    let mut reader = BufReader::new(transcoded);
+
+    let mut buf = String::new();
+
+    let n = reader.read_to_string(&mut buf).unwrap();
+
+    assert!(n > 0);
+
+    buf
 }
 
 #[cfg(test)]
@@ -338,10 +373,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn read() {
+    fn test_parse_file() {
         let parent = Path::new(file!()).parent().unwrap();
-        let path = &parent.join("testdata/dump.html");
-        parse_file(&path);
+        let path = &parent.join("testdata/2024-01-30-123020-dump.html");
+        let buf = decode_to_string(path, encoding_lookup("ISO_8859_15").unwrap());
+        let parser = Parser::new("Europe/Helsinki".parse::<Tz>().unwrap(), get_time());
+        let result = parser.parse_from_string(&buf);
+
+        let items = result.unwrap();
+
+        assert_eq!(items.len(), 12);
+
+        for itm in items {
+            println!("{:#?}", itm);
+        }
     }
 
     #[test]
@@ -367,7 +412,7 @@ mod tests {
         assert_eq!(parse_month_short("tam"), Ok(Month::January));
         assert_eq!(
             parse_month_short("foo"),
-            Err(ParseError::InvalidMonth("foo".to_string()))
+            Err(DateParseError::InvalidMonth("foo".to_string()))
         );
     }
 
@@ -379,11 +424,11 @@ mod tests {
         );
         assert_eq!(
             parse_hh_mm("01:60"),
-            Err(ParseError::InvalidTime("01:60".to_string()))
+            Err(DateParseError::InvalidTime("01:60".to_string()))
         );
         assert_eq!(
             parse_hh_mm("25:24"),
-            Err(ParseError::InvalidTime("25:24".to_string()))
+            Err(DateParseError::InvalidTime("25:24".to_string()))
         );
     }
 
@@ -393,8 +438,10 @@ mod tests {
 
     #[test]
     fn test_parse_ts_relative() {
-        let parser = Parser::new(chrono_tz::Europe::Helsinki, get_time());
+        let parser = Parser::new("Europe/Helsinki".parse::<Tz>().unwrap(), get_time());
+
         let result = parser.parse_posted_at("tänään 01:23");
+
         assert_eq!(
             result,
             Ok(chrono_tz::Europe::Helsinki
@@ -413,12 +460,15 @@ mod tests {
         );
 
         let result = parser.parse_posted_at("tänään 25:48");
-        assert_eq!(result, Err(ParseError::InvalidTime("25:48".to_string())));
+        assert_eq!(
+            result,
+            Err(DateParseError::InvalidTime("25:48".to_string()))
+        );
     }
 
     #[test]
     fn test_parse_ts_absolute() {
-        let parser = Parser::new(chrono_tz::Europe::Helsinki, get_time());
+        let parser = Parser::new("Europe/Helsinki".parse::<Tz>().unwrap(), get_time());
         let result = parser.parse_posted_at("21 huh 19:52");
         assert_eq!(
             result,
@@ -428,7 +478,7 @@ mod tests {
                 .with_timezone(&Utc))
         );
         let result = parser.parse_posted_at("32 tam 01:32");
-        assert_eq!(result, Err(ParseError::InvalidDay("32".to_string())));
+        assert_eq!(result, Err(DateParseError::InvalidDay("32".to_string())));
     }
 
     #[test]
