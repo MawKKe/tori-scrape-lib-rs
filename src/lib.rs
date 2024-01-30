@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use chrono::NaiveDateTime;
 use chrono::{DateTime, Datelike, Days, LocalResult, Month, NaiveTime, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 use encoding_rs::ISO_8859_15;
@@ -169,24 +170,17 @@ impl Parser {
     }
 
     fn parse_rel_time(&self, relday_s: &str, hhmm_s: &str) -> ParseResult<DateTime<Utc>> {
-        let hhmm = parse_hh_mm(hhmm_s)?;
+        let naive_time = parse_hh_mm(hhmm_s)?;
 
-        let date = match relday_s {
-            "tänään" => Ok(self.user_today.clone()),
-            "eilen" => Ok(self.user_yesterday.clone()),
+        let naive_date = match relday_s {
+            "tänään" => Ok(self.user_today.date_naive()),
+            "eilen" => Ok(self.user_yesterday.date_naive()),
             _ => Err(ParseError::InvalidRelativeDay(relday_s.to_string())),
         }?;
 
-        let new_ts_maybe = date.timezone().with_ymd_and_hms(
-            date.year(),
-            date.month(),
-            date.day(),
-            hhmm.hour(),
-            hhmm.minute(),
-            0,
-        );
+        let date = NaiveDateTime::new(naive_date, naive_time);
 
-        match new_ts_maybe {
+        match self.user_today.timezone().from_local_datetime(&date) {
             LocalResult::Single(new_ts) => Ok(new_ts.with_timezone(&Utc)),
             _ => Err(ParseError::ArithmeticProblem),
         }
@@ -201,7 +195,6 @@ impl Parser {
         let day = parse_day(day_s)?;
         let month = parse_month_short(month_s)?;
         let hhmm = parse_hh_mm(hhmm_s)?;
-
         let new_ts_maybe = self.user_today.timezone().with_ymd_and_hms(
             self.user_today.year(),
             month.number_from_month(),
