@@ -1,6 +1,6 @@
 use std::env;
 use std::path::Path;
-use tori_scrape_lib::parse_file;
+use tori_scrape::parse_file;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

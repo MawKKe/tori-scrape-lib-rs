@@ -1,5 +1,5 @@
 [package]
-name = "tori_scrape_lib"
+name = "tori-scrape-lib-rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["Markus H (MawKKe) <markus@mawkke.fi>"]
@@ -15,3 +15,11 @@ encoding_rs_io = "0.1.7"
 lazy_static = "1.4.0"
 regex = "1.10.3"
 scraper = "0.18.1"
+
+[lib]
+name = "tori_scrape"
+path = "src/lib.rs"
+
+[[bin]]
+name = "parse-demo"
+path = "bin/parse-demo.rs"
