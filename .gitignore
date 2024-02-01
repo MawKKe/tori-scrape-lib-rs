@@ -15,3 +15,10 @@ Cargo.lock
 
 # Vim crap
 .*.sw[mnop]
+
+# do not store sqlite databases in repo
+*.db
+
+# Goddamn lock ness monsta! Go away!
+__pycache__/
+*.pyc
