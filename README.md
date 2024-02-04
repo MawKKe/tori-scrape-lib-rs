@@ -21,7 +21,7 @@ Kirjaston päärajapinta on `Parser` luokka, jota käytetään antamalla sille s
 ajankohta, sekä dokumentin sisältö UTF8-muodossa:
 
 ```Rust
-    use tori_scrape_lib::Parser;
+    use tori_scrape_lib::{Parser, Item};
 
     let buf = /* decode HTTP response body to UTF8 */ ;
     let fetch_time = /* ... when the HTTP request was made ... */ ;
