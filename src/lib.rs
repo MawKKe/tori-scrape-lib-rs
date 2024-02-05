@@ -40,8 +40,9 @@ pub enum ItemParseErrorKind {
     MissingPostedAt,
     MissingLocation,
     MissingDirection,
-    UnexpectedValue(String),
+    UnexpectedValue(&'static str, String),
     InvalidPrice(String),
+    InvalidDate(DateParseError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -237,7 +238,7 @@ impl Parser {
                     .ok_or(ItemParseError {
                         item_idx: i,
                         item_id: None,
-                        error: UnexpectedValue(item_id.to_string()),
+                        error: UnexpectedValue("id", item_id.to_string()),
                     })?
                     .to_string()
             };
@@ -254,7 +255,7 @@ impl Parser {
                     _ => Err(ItemParseError {
                         item_idx: i,
                         item_id: Some(item_id.clone()),
-                        error: UnexpectedValue(format!("data-company-ad=\"{}\"", s)),
+                        error: UnexpectedValue("data-company-ad", s.to_string()),
                     }),
                 }
             }?;
@@ -307,7 +308,13 @@ impl Parser {
                     error: MissingPostedAt,
                 })?;
 
-            let posted_at_parsed = self.parse_posted_at(&posted_at).expect("fukken ded");
+            let posted_at_parsed =
+                self.parse_posted_at(&posted_at)
+                    .map_err(|e| ItemParseError {
+                        item_idx: i,
+                        item_id: Some(item_id.clone()),
+                        error: InvalidDate(e),
+                    })?;
 
             let mut combined = element.select(&COMBINED_SELECTOR);
 
@@ -330,9 +337,7 @@ impl Parser {
                 })?;
 
             let seller_maybe = {
-                let v = combined
-                    .map(|n| reformat_ws(&n.inner_html()))
-                    .collect::<Vec<String>>();
+                let v: Vec<String> = combined.map(|n| reformat_ws(&n.inner_html())).collect();
                 match v.len() {
                     0 => None,
                     _ => Some(v.join(" ")),
