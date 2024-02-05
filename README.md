@@ -27,7 +27,16 @@ ajankohta, sekä dokumentin sisältö UTF8-muodossa:
     let fetch_time = /* ... when the HTTP request was made ... */ ;
 
     let parser = Parser::new(fetch_time);
-    let result: Vec<Item> = parser.parse_from_string(&buf).unwrap();
+    let results: ItemParseResult<Vec<Item>> = parser.parse_from_string(&buf);
 ```
 
-nyt `results` sisältää vektorin tori.fi ilmoituksista jotka löytyivät HTML-dokumentista (jos löytyivät...).
+nyt `results` sisältää joko
+- vektorin tori.fi ilmoituksista (`Item`),jotka löytyivät HTML-dokumentista, tai
+- virheviestin (`ItemParseError`), joka sisältää tarkennuksen missä parsinta meni mönkään.
+
+Parseri on myös aika suorituskykyinen: 40 ilmoituksen tulossivun parsinta kestää
+noin 10 millisekuntia (`--release` moodissa).
+
+Huomaa että tori.fi:n ilmoituksissa olevat aikaleimat ovat aika omituisia ei-standardimaisia ("tänään XX:YY", 
+"eilen XX:YY", "29 tam XX:YY", ...); tämä kirjasto
+muuntaa ne normaaliksi natiiveiksi aikaleimoiksi, normalisoiden ne UTC:hen, joita on sitten helpompi käyttää jatkoprosessoinnissa.
