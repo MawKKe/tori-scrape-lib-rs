@@ -268,15 +268,25 @@ impl Parser {
                     error: MissingHref,
                 })?;
 
-            let price = match {
-                element
+            let price = {
+                let price_maybe = element
                     .select(&PRICE_SELECTOR)
                     .next()
                     .map(|n| n.text().collect::<String>())
-                    .filter(|s| !s.is_empty())
-            } {
-                None => None,
-                Some(t) => Some(price_parse(&t).unwrap()), // FIXME
+                    .filter(|s| !s.is_empty());
+
+                // we need this rigamarole because we want to distinguish between
+                // a) having no price b) having valid/expected price c) having invalid/unexpected price string.
+                match price_maybe {
+                    None => None,
+                    Some(price_s) => {
+                        Some(price_parse(&price_s).map_err(|kind| ItemParseError {
+                            item_idx: i,
+                            item_id: Some(item_id.clone()),
+                            error: kind,
+                        })?)
+                    }
+                }
             };
 
             let thumbnail_url = element
