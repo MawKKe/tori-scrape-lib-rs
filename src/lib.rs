@@ -10,7 +10,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use scraper::Html;
 use scraper::Selector;
-use serde_json;
 use std::io::BufReader;
 use std::io::Read;
 use std::ops::Sub;
@@ -523,6 +522,8 @@ mod tests {
 
     #[test]
     fn test_read_json() {
+        use serde_json;
+
         let parent = Path::new(file!()).parent().unwrap();
         let path = &parent.join("testdata/test.json");
         let file = fs::File::open(path).unwrap();
