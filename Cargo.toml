@@ -23,4 +23,4 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "parse-demo"
-path = "bin/parse-demo.rs"
+path = "src/bin/parse-demo.rs"
