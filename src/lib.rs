@@ -70,11 +70,26 @@ pub type DateParseResult<T> = Result<T, DateParseError>;
 
 type ItemParseResult<T> = Result<T, ItemParseError>;
 
+/// Implements parsing of tori.fi search results page. You can parse either
+/// the whole content (HTML document) or some parts of if (e.g. timestamps).
+///
+/// # Examples
+/// ```ignore
+/// use tori_scrape::{Parser, Item};
+///
+/// let buf = /* decode HTTP response body to UTF8 */ ;
+/// let fetch_time = /* ... when the HTTP request was made ... */ ;
+///
+/// let parser = Parser::new(fetch_time);
+///
+/// let results: ItemParseResult<Vec<Item>> = parser.parse_from_string(&buf);
+/// ```
 pub struct Parser {
     user_today: DateTime<chrono_tz::Tz>,
     user_yesterday: DateTime<chrono_tz::Tz>,
 }
 
+/// Lookup locale encoding using conventional string labels such as "ISO_8859_15"
 pub fn encoding_lookup(name: &str) -> Option<&'static encoding_rs::Encoding> {
     match name {
         "ISO_8859_15" => Some(encoding_rs::ISO_8859_15),
@@ -82,10 +97,12 @@ pub fn encoding_lookup(name: &str) -> Option<&'static encoding_rs::Encoding> {
     }
 }
 
+/// Lookup timezone using conventional string labels such as "Europe/Helsinnki"
 pub fn timezone_lookup(name: &str) -> Result<Tz, String> {
     name.parse::<Tz>()
 }
 
+/// Represents item price, parsed from a posting. The unit is usually "€".
 #[derive(Debug, PartialEq)]
 pub struct Price {
     pub value: i32,
@@ -105,7 +122,8 @@ lazy_static! {
         Regex::new(r"\s*(\d{1,2})\s+([a-zA-Z]{3})\s+(\d{2}:\d{2})\s*").unwrap();
 }
 
-fn price_parse(input: &str) -> Result<Price, ItemParseErrorKind> {
+/// Parse price string such as "1 234 €" into structured form.
+pub fn price_parse(input: &str) -> Result<Price, ItemParseErrorKind> {
     // note: input must not be empty
     match PRICE_PATT.captures(input) {
         Some(patts) => {
@@ -155,6 +173,9 @@ fn parse_day(day: &str) -> DateParseResult<u32> {
 }
 
 impl Parser {
+    /// Construct new Parser instance. The `fetch_time` argument is required for the parser
+    /// to be able to decode relative/ambiguous timestamps (see [parse_posted_at](Parser::parse_posted_at)).
+    /// Because of this, you should create separate parser instance for each fetched page.
     pub fn new(fetch_time: DateTime<Tz>) -> Self {
         Parser {
             user_today: fetch_time,
@@ -213,6 +234,9 @@ impl Parser {
         Ok(new_ts.with_timezone(&Utc))
     }
 
+    /// Parse timestamp of an item listing (when it was posted). The input string can contain
+    /// either 1) _absolute_ timestamp such as `15 huh 12:45` or 2) _relative_ timestamp such
+    /// as `tänään 12:34` or `eilen 12:34`.
     pub fn parse_posted_at(&self, ts: &str) -> DateParseResult<DateTime<Utc>> {
         if let Some(patts) = REL_TIME.captures(ts) {
             let (_, [relday_s, hhmm_s]) = patts.extract();
@@ -225,6 +249,7 @@ impl Parser {
         }
     }
 
+    /// Parses the entire document and retuns a vector of Items for later use.
     pub fn parse_document(&self, doc: &Html) -> ItemParseResult<Vec<Item>> {
         let mut items = vec![];
         use ItemParseErrorKind::*;
@@ -377,12 +402,15 @@ impl Parser {
         Ok(items)
     }
 
+    /// Convenience function for parsing items from a string buffer. Calls parse_document()
+    /// internally.
     pub fn parse_from_string(&self, buf: &str) -> ItemParseResult<Vec<Item>> {
         let doc = Html::parse_document(buf);
         self.parse_document(&doc)
     }
 }
 
+/// Reads given file (assumed to be in given encoding), and transcodes it to native UTF-8 String.
 pub fn decode_to_string(path: &Path, encoding: &'static encoding_rs::Encoding) -> String {
     let file = fs::File::open(path).unwrap();
 
@@ -547,6 +575,17 @@ mod tests {
     }
 }
 
+/// Takes a string with uncontrolled amount of whitespace between tokens,
+/// and returns the string reformatted with single space characters between
+/// tokens.
+///
+/// # Examples
+///
+/// ```
+/// use tori_scrape::reformat_ws;
+///
+/// assert_eq!(reformat_ws("   foo  bar baz  "), "foo bar baz".to_string());
+/// ```
 pub fn reformat_ws(input: &str) -> String {
     let w = input.split_whitespace();
     w.collect::<Vec<&str>>().join(" ")

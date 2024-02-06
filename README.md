@@ -21,7 +21,7 @@ Kirjaston päärajapinta on `Parser` luokka, jota käytetään antamalla sille s
 ajankohta, sekä dokumentin sisältö UTF8-muodossa:
 
 ```Rust
-    use tori_scrape_lib::{Parser, Item};
+    use tori_scrape::{Parser, Item};
 
     let buf = /* decode HTTP response body to UTF8 */ ;
     let fetch_time = /* ... when the HTTP request was made ... */ ;
@@ -40,3 +40,8 @@ noin 10 millisekuntia (`--release` moodissa).
 Huomaa että tori.fi:n ilmoituksissa olevat aikaleimat ovat aika omituisia ei-standardimaisia ("tänään XX:YY", 
 "eilen XX:YY", "29 tam XX:YY", ...); tämä kirjasto
 muuntaa ne normaaliksi natiiveiksi aikaleimoiksi, normalisoiden ne UTC:hen, joita on sitten helpompi käyttää jatkoprosessoinnissa.
+
+# Demo
+
+    $ curl <sinun-tori-fi-url> -o my-results.html
+    $ cargo run --release --bin parse-demo my-results.html
