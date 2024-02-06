@@ -30,16 +30,21 @@ pub struct Item {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum ItemAttribute {
+    ID,
+    Title,
+    Href,
+    CompanyAd,
+    Img,
+    PostedAt,
+    Location,
+    Direction,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum ItemParseErrorKind {
-    MissingID,
-    MissingTitle,
-    MissingHref,
-    MissingCompanyAd,
-    MissingImg,
-    MissingPostedAt,
-    MissingLocation,
-    MissingDirection,
-    UnexpectedValue(&'static str, String),
+    MissingAttribute(ItemAttribute),
+    UnexpectedValue(ItemAttribute, String),
     InvalidPrice(String),
     InvalidDate(DateParseError),
 }
@@ -229,7 +234,7 @@ impl Parser {
                 let item_id = element.attr("id").ok_or(ItemParseError {
                     item_idx: i,
                     item_id: None,
-                    error: MissingID,
+                    error: MissingAttribute(ItemAttribute::ID),
                 })?;
 
                 item_id
@@ -237,7 +242,7 @@ impl Parser {
                     .ok_or(ItemParseError {
                         item_idx: i,
                         item_id: None,
-                        error: UnexpectedValue("id", item_id.to_string()),
+                        error: UnexpectedValue(ItemAttribute::ID, item_id.to_string()),
                     })?
                     .to_string()
             };
@@ -245,7 +250,7 @@ impl Parser {
                 let s = element.attr("data-company-ad").ok_or(ItemParseError {
                     item_idx: i,
                     item_id: Some(item_id.clone()),
-                    error: MissingCompanyAd,
+                    error: MissingAttribute(ItemAttribute::CompanyAd),
                 })?;
 
                 match s {
@@ -254,7 +259,7 @@ impl Parser {
                     _ => Err(ItemParseError {
                         item_idx: i,
                         item_id: Some(item_id.clone()),
-                        error: UnexpectedValue("data-company-ad", s.to_string()),
+                        error: UnexpectedValue(ItemAttribute::CompanyAd, s.to_string()),
                     }),
                 }
             }?;
@@ -265,7 +270,7 @@ impl Parser {
                 .ok_or(ItemParseError {
                     item_idx: i,
                     item_id: Some(item_id.clone()),
-                    error: MissingHref,
+                    error: MissingAttribute(ItemAttribute::Href),
                 })?;
 
             let price = {
@@ -302,7 +307,7 @@ impl Parser {
                 .ok_or(ItemParseError {
                     item_idx: i,
                     item_id: Some(item_id.clone()),
-                    error: MissingTitle,
+                    error: MissingAttribute(ItemAttribute::Title),
                 })?
                 .trim()
                 .to_string();
@@ -314,7 +319,7 @@ impl Parser {
                 .ok_or(ItemParseError {
                     item_idx: i,
                     item_id: Some(item_id.clone()),
-                    error: MissingPostedAt,
+                    error: MissingAttribute(ItemAttribute::PostedAt),
                 })?;
 
             let posted_at_parsed =
@@ -333,7 +338,7 @@ impl Parser {
                 .ok_or(ItemParseError {
                     item_idx: i,
                     item_id: Some(item_id.clone()),
-                    error: MissingLocation,
+                    error: MissingAttribute(ItemAttribute::Location),
                 })?;
 
             let direction = combined
@@ -342,7 +347,7 @@ impl Parser {
                 .ok_or(ItemParseError {
                     item_idx: i,
                     item_id: Some(item_id.clone()),
-                    error: MissingDirection,
+                    error: MissingAttribute(ItemAttribute::Direction),
                 })?;
 
             let seller_maybe = {
