@@ -552,19 +552,9 @@ pub fn reformat_ws(input: &str) -> String {
     w.collect::<Vec<&str>>().join(" ")
 }
 
-pub fn remove_prefix_maybe(prefix: &str, input: &str) -> String {
-    input.strip_prefix(prefix).unwrap_or(input).to_string()
-}
-
 #[cfg(test)]
 mod utils_tests {
     use super::*;
-
-    #[test]
-    fn test_remove_prefix() {
-        assert_eq!(remove_prefix_maybe("testi_", "testi_data"), "data");
-        assert_eq!(remove_prefix_maybe("notexist_", "testi_data"), "testi_data");
-    }
 
     #[test]
     fn test_reformat_ws() {
