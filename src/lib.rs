@@ -74,7 +74,7 @@ type ItemParseResult<T> = Result<T, ItemParseError>;
 /// the whole content (HTML document) or some parts of if (e.g. timestamps).
 ///
 /// # Examples
-/// ```ignore
+/// ```compile_fail
 /// use tori_scrape::{Parser, Item};
 ///
 /// let buf = /* decode HTTP response body to UTF8 */ ;
