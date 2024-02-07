@@ -404,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_parse_file() {
-        let tz = "Europe/Helsinki".parse::<Tz>().unwrap();
+        let tz = utils::timezone_lookup("Europe/Helsinki").unwrap();
         let parent = Path::new(file!()).parent().unwrap();
 
         let test_data = vec![
@@ -430,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_price() {
+    fn test_parse_price() {
         assert_eq!(
             price_parse("1 €"),
             Ok(Price {
