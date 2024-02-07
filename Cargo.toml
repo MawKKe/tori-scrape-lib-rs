@@ -10,6 +10,7 @@ license-file = "LICENCE"
 [dependencies]
 chrono = "0.4.33"
 chrono-tz = "0.8.5"
+clap = "4.4.18"
 encoding_rs = "0.8.33"
 encoding_rs_io = "0.1.7"
 lazy_static = "1.4.0"
@@ -24,3 +25,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "parse-demo"
 path = "src/bin/parse-demo.rs"
+
+[[bin]]
+name = "tori"
+path = "src/bin/tori.rs"
