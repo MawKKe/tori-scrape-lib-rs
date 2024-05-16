@@ -2,6 +2,10 @@
 
 [![Rust](https://github.com/MawKKe/tori-scrape-lib-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/MawKKe/tori-scrape-lib-rs/actions/workflows/rust.yml)
 
+**2024-05-15**: tori.fi on uudistanut websivujen rakenteen kovalla kädellä, eli tämä parseri ei enää toimi. En jaksa korjata, pitäkööt tunkkinsa.
+
+---
+
 Kirjasto implementoi parserin joka ottaa tori.fi hakutulossivun (HTML) ja
 muuttaa sen rakenteelliseen muotoon. Tätä toiminnallisuutta voidaan käyttää
 hyödyksi esimerkiksi hakuvahdin implementointiin.
